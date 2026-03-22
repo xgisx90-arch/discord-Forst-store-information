@@ -6,18 +6,19 @@ import aiohttp
 import io
 from utils.embeds import create_main_embed
 
-# نافذة إدخال البيانات (للحفاظ على التنسيق والأسطر)
-class EmbedModal(ui.Modal, title="إرسال إمبيد منسق"):
-    # خانة العنوان (سطر واحد)
-    msg_title = ui.TextInput(label="العنوان (مثلاً: نيترو قيمنق)", placeholder="اكتب العنوان هنا...", required=True)
-    # خانة التفاصيل (عدة أسطر - Paragraph)
+# 1. المودال لجمع البيانات (5 خانات كحد أقصى)
+class EmbedModal(ui.Modal, title="إرسال إمبيد المتجر بالأزرار"):
+    msg_title = ui.TextInput(label="العنوان العلوي", placeholder="مثلاً: نيترو قيمنق", required=True)
     msg_details = ui.TextInput(
-        label="التفاصيل (ستظهر عند ضغط الزر)",
+        label="التفاصيل",
         style=discord.TextStyle.paragraph,
         placeholder="انسخ النص المنسق هنا...",
-        required=True,
-        min_length=1
+        required=True
     )
+    # خانات الروابط (اختيارية)
+    link_shop = ui.TextInput(label="رابط الشراء/الموقع", placeholder="https://...", required=False)
+    link_ticket = ui.TextInput(label="رابط التكت", placeholder="https://...", required=False)
+    link_extra = ui.TextInput(label="رابط إضافي", placeholder="https://...", required=False)
 
     def __init__(self, cog_instance, target_channel):
         super().__init__()
@@ -25,21 +26,28 @@ class EmbedModal(ui.Modal, title="إرسال إمبيد منسق"):
         self.target_channel = target_channel
 
     async def on_submit(self, interaction: discord.Interaction):
-        # الرد الأولي
-        await interaction.response.send_message("✅ جاري معالجة الصور والنشر بالتنسيق المطلوب...", ephemeral=True)
+        await interaction.response.send_message("✅ جاري معالجة الأزرار والنشر...", ephemeral=True)
 
-        # النص المنسق (بيحتفظ بالأسطر هنا)
-        details_text = self.msg_details.value
+        # تجهيز الروابط في قاموس (Dictionary) لتسهيل التعامل معها
+        links_data = [
+            {"label": "رابط الشراء 🛒", "url": self.link_shop.value},
+            {"label": "فتح تكت 🎫", "url": self.link_ticket.value},
+            {"label": "رابط إضافي 🔗", "url": self.link_extra.value}
+        ]
+
         title_text = self.msg_title.value
-        
+        details_text = self.msg_details.value
         description_text = f"اضغط على زر ( 📦 اظهار جميع التفاصيل : {title_text} )"
         
-        # 1. إرسال الإمبيد العلوي
+        # إنشاء الإمبيد الرئيسي
         main_embed = create_main_embed(title_text, description_text, self.cog.top_banner)
-        view = DetailsView(details_text)
+        
+        # إنشاء الـ View وإضافة أزرار الروابط له
+        view = DetailsView(details_text, links_data)
+        
         await self.target_channel.send(embed=main_embed, view=view)
 
-        # 2. إرسال البانر السفلي (عريض وكبير)
+        # إرسال البانر السفلي (عريض وكبير)
         async with aiohttp.ClientSession() as session:
             async with session.get(self.cog.bottom_banner) as resp:
                 if resp.status == 200:
@@ -47,14 +55,24 @@ class EmbedModal(ui.Modal, title="إرسال إمبيد منسق"):
                     file = discord.File(data, filename="banner.png")
                     await self.target_channel.send(file=file)
 
+# 2. الـ View المسؤول عن عرض الزرار الأزرق وأزرار الروابط
 class DetailsView(ui.View):
-    def __init__(self, details_content):
+    def __init__(self, details_content, links_data):
         super().__init__(timeout=None)
         self.details_content = details_content
 
-    @ui.button(label="اظهار جميع التفاصيل 📦", style=discord.ButtonStyle.blurple, custom_id="show_details_btn")
+        # إضافة زر "إظهار التفاصيل" أولاً
+        # ملاحظة: هذا الزر استجابة (Interaction)، أما الباقي فهي روابط (URL)
+        
+        # إضافة أزرار الروابط ديناميكياً إذا وُجدت
+        for item in links_data:
+            url = item["url"]
+            if url and url.startswith("http"):
+                # زرار من نوع Link (يفتح رابط)
+                self.add_item(ui.Button(label=item["label"], url=url, style=discord.ButtonStyle.link))
+
+    @ui.button(label="اظهار جميع التفاصيل 📦", style=discord.ButtonStyle.blurple, custom_id="show_details_btn", row=1)
     async def show_details(self, interaction: discord.Interaction, button: ui.Button):
-        # هنا الرسالة هتظهر منسقة زي ما دخلتها في المودال
         await interaction.response.send_message(
             content=f"{self.details_content}", 
             ephemeral=True
@@ -67,14 +85,12 @@ class Messenger(commands.Cog):
         self.top_banner = os.getenv('TOP_BANNER_URL')
         self.bottom_banner = os.getenv('BOTTOM_BANNER_URL')
 
-    @app_commands.command(name="send_embed", description="فتح نافذة لإرسال إمبيد منسق")
+    @app_commands.command(name="send_embed", description="إرسال إمبيد متجر احترافي بأزرار روابط")
     async def send_embed(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
         target_channel = channel or self.bot.get_channel(self.default_target_id)
         if not target_channel:
             await interaction.response.send_message("❌ الروم غير موجود!", ephemeral=True)
             return
-
-        # فتح النافذة المنبثقة (Modal)
         await interaction.response.send_modal(EmbedModal(self, target_channel))
 
 async def setup(bot):
