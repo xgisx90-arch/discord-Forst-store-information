@@ -24,7 +24,7 @@ class MyBot(commands.Bot):
     async def on_ready(self):
         print(f'🚀 {self.user.name} جاهز!')
         # حط ID سيرفرك هنا عشان يظهر السلاش فوراً
-        guild_id = 1415683327293263874  # استبدله بـ ID سيرفرك
+        guild_id = 1482106086965248203  # استبدله بـ ID سيرفرك
         guild = discord.Object(id=guild_id)
 
         self.tree.copy_global_to(guild=guild)
